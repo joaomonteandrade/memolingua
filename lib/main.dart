@@ -84,19 +84,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> adicionarPdfAoGrupo(PdfGroup grupo) async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf'],
-    );
-
-    if (result != null) {
-      setState(() {
-        grupo.pdfs.add(result.files.first);
-      });
-    }
-  }
-
   void abrirGrupo(PdfGroup grupo) {
     Navigator.push(
       context,
@@ -110,7 +97,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Grupos de PDFs'),
+        title: const Text('memolingua'),
       ),
       body: grupos.isEmpty
           ? const Center(
@@ -122,17 +109,8 @@ class _HomePageState extends State<HomePage> {
                 final grupo = grupos[index];
 
                 return ListTile(
-                  leading: const Icon(Icons.folder),
                   title: Text(grupo.nome),
-                  subtitle: Text(
-                    '${grupo.pdfs.length} PDFs',
-                  ),
                   onTap: () => abrirGrupo(grupo),
-
-                  trailing: IconButton(
-                    icon: const Icon(Icons.add),
-                    onPressed: () => adicionarPdfAoGrupo(grupo),
-                  ),
                 );
               },
             ),
@@ -144,13 +122,31 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class GrupoPage extends StatelessWidget {
+class GrupoPage extends StatefulWidget {
   final PdfGroup grupo;
 
   const GrupoPage({
     super.key,
     required this.grupo,
   });
+
+  @override
+  State<GrupoPage> createState() => _GrupoPageState();
+}
+
+class _GrupoPageState extends State<GrupoPage> {
+  Future<void> adicionarPdfAoGrupo() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+    );
+
+    if (result != null) {
+      setState(() {
+        widget.grupo.pdfs.add(result.files.first);
+      });
+    }
+  }
 
   void abrirPdf(BuildContext context, PlatformFile pdf) {
     Navigator.push(
@@ -165,16 +161,16 @@ class GrupoPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(grupo.nome),
+        title: Text(widget.grupo.nome),
       ),
-      body: grupo.pdfs.isEmpty
+      body: widget.grupo.pdfs.isEmpty
           ? const Center(
               child: Text('Nenhum PDF neste grupo'),
             )
           : ListView.builder(
-              itemCount: grupo.pdfs.length,
+              itemCount: widget.grupo.pdfs.length,
               itemBuilder: (context, index) {
-                final pdf = grupo.pdfs[index];
+                final pdf = widget.grupo.pdfs[index];
 
                 return ListTile(
                   leading: const Icon(Icons.picture_as_pdf),
@@ -183,6 +179,10 @@ class GrupoPage extends StatelessWidget {
                 );
               },
             ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: adicionarPdfAoGrupo,
+        child: const Icon(Icons.add),
+      ),
     );
   }
 }
