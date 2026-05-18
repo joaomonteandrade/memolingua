@@ -1,10 +1,21 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 void main() {
   runApp(const MyApp());
+}
+
+class PdfGroup {
+  String nome;
+  List<PlatformFile> pdfs;
+
+  PdfGroup({
+    required this.nome,
+    required this.pdfs,
+  });
 }
 
 class MyApp extends StatelessWidget {
@@ -29,9 +40,51 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final List<PlatformFile> pdfs = [];
+  final List<PdfGroup> grupos = [];
 
-  Future<void> adicionarPdf() async {
+  Future<void> criarGrupo() async {
+    final controller = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text('Novo Grupo'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              hintText: 'Nome do grupo',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (controller.text.trim().isNotEmpty) {
+                  setState(() {
+                    grupos.add(
+                      PdfGroup(
+                        nome: controller.text.trim(),
+                        pdfs: [],
+                      ),
+                    );
+                  });
+
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Criar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> adicionarPdfAoGrupo(PdfGroup grupo) async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
@@ -39,40 +92,97 @@ class _HomePageState extends State<HomePage> {
 
     if (result != null) {
       setState(() {
-        pdfs.add(result.files.first);
+        grupo.pdfs.add(result.files.first);
       });
     }
   }
 
-  void abrirPdf(PlatformFile pdf) {
+  void abrirGrupo(PdfGroup grupo) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => PdfViewerPage(pdf: pdf)),
+      MaterialPageRoute(
+        builder: (_) => GrupoPage(grupo: grupo),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Meus PDFs')),
-      body: pdfs.isEmpty
-          ? const Center(child: Text('Nenhum PDF adicionado'))
+      appBar: AppBar(
+        title: const Text('Grupos de PDFs'),
+      ),
+      body: grupos.isEmpty
+          ? const Center(
+              child: Text('Nenhum grupo criado'),
+            )
           : ListView.builder(
-              itemCount: pdfs.length,
+              itemCount: grupos.length,
               itemBuilder: (context, index) {
-                final pdf = pdfs[index];
+                final grupo = grupos[index];
 
                 return ListTile(
-                  leading: const Icon(Icons.picture_as_pdf),
-                  title: Text(pdf.name),
-                  onTap: () => abrirPdf(pdf),
+                  leading: const Icon(Icons.folder),
+                  title: Text(grupo.nome),
+                  subtitle: Text(
+                    '${grupo.pdfs.length} PDFs',
+                  ),
+                  onTap: () => abrirGrupo(grupo),
+
+                  trailing: IconButton(
+                    icon: const Icon(Icons.add),
+                    onPressed: () => adicionarPdfAoGrupo(grupo),
+                  ),
                 );
               },
             ),
       floatingActionButton: FloatingActionButton(
-        onPressed: adicionarPdf,
-        child: const Icon(Icons.add),
+        onPressed: criarGrupo,
+        child: const Icon(Icons.create_new_folder),
       ),
+    );
+  }
+}
+
+class GrupoPage extends StatelessWidget {
+  final PdfGroup grupo;
+
+  const GrupoPage({
+    super.key,
+    required this.grupo,
+  });
+
+  void abrirPdf(BuildContext context, PlatformFile pdf) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PdfViewerPage(pdf: pdf),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(grupo.nome),
+      ),
+      body: grupo.pdfs.isEmpty
+          ? const Center(
+              child: Text('Nenhum PDF neste grupo'),
+            )
+          : ListView.builder(
+              itemCount: grupo.pdfs.length,
+              itemBuilder: (context, index) {
+                final pdf = grupo.pdfs[index];
+
+                return ListTile(
+                  leading: const Icon(Icons.picture_as_pdf),
+                  title: Text(pdf.name),
+                  onTap: () => abrirPdf(context, pdf),
+                );
+              },
+            ),
     );
   }
 }
@@ -80,7 +190,10 @@ class _HomePageState extends State<HomePage> {
 class PdfViewerPage extends StatefulWidget {
   final PlatformFile pdf;
 
-  const PdfViewerPage({super.key, required this.pdf});
+  const PdfViewerPage({
+    super.key,
+    required this.pdf,
+  });
 
   @override
   State<PdfViewerPage> createState() => _PdfViewerPageState();
@@ -89,7 +202,10 @@ class PdfViewerPage extends StatefulWidget {
 class _PdfViewerPageState extends State<PdfViewerPage> {
   OverlayEntry? overlayEntry;
 
-  void mostrarOverlay(BuildContext context, String textoSelecionado) {
+  void mostrarOverlay(
+    BuildContext context,
+    String textoSelecionado,
+  ) {
     removerOverlay();
 
     overlayEntry = OverlayEntry(
@@ -110,14 +226,19 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
               children: [
                 Text(
                   textoSelecionado,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                  ),
                 ),
 
                 const SizedBox(height: 12),
 
                 ElevatedButton(
                   onPressed: () {
-                    print("Texto selecionado: $textoSelecionado");
+                    print(
+                      "Texto selecionado: $textoSelecionado",
+                    );
 
                     removerOverlay();
                   },
@@ -147,14 +268,18 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.pdf.name)),
+      appBar: AppBar(
+        title: Text(widget.pdf.name),
+      ),
       body: SfPdfViewer.file(
         File(widget.pdf.path!),
-
         onTextSelectionChanged: (details) {
           if (details.selectedText != null &&
               details.selectedText!.isNotEmpty) {
-            mostrarOverlay(context, details.selectedText!);
+            mostrarOverlay(
+              context,
+              details.selectedText!,
+            );
           } else {
             removerOverlay();
           }
