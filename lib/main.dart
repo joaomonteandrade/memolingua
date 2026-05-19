@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,14 +10,46 @@ void main() {
   runApp(const MyApp());
 }
 
+// ==========================================
+// MODELOS DE DADOS COM SERIALIZAÇÃO JSON
+// ==========================================
+
 class Flashcard {
   String frente;
   String verso;
+  int repetitions;   
+  int interval;      
+  double easeFactor; 
+  DateTime nextReview; 
 
   Flashcard({
     required this.frente,
     required this.verso,
-  });
+    this.repetitions = 0,
+    this.interval = 0,
+    this.easeFactor = 2.5,
+    DateTime? nextReview,
+  }) : nextReview = nextReview ?? DateTime.now();
+
+  // Converte o objeto para um formato que o JSON entende
+  Map<String, dynamic> toMap() => {
+    'frente': frente,
+    'verso': verso,
+    'repetitions': repetitions,
+    'interval': interval,
+    'easeFactor': easeFactor,
+    'nextReview': nextReview.toIso8601String(),
+  };
+
+  // Recria o objeto a partir dos dados salvos no JSON
+  factory Flashcard.fromMap(Map<String, dynamic> map) => Flashcard(
+    frente: map['frente'],
+    verso: map['verso'],
+    repetitions: map['repetitions'] ?? 0,
+    interval: map['interval'] ?? 0,
+    easeFactor: (map['easeFactor'] as num?)?.toDouble() ?? 2.5,
+    nextReview: map['nextReview'] != null ? DateTime.parse(map['nextReview']) : DateTime.now(),
+  );
 }
 
 class PdfDocumentItem {
@@ -29,6 +62,24 @@ class PdfDocumentItem {
     this.thumbnailPath,
     this.ultimaPagina = 1,
   });
+
+  Map<String, dynamic> toMap() => {
+    'filePath': file.path,
+    'fileName': file.name,
+    'fileSize': file.size,
+    'thumbnailPath': thumbnailPath,
+    'ultimaPagina': ultimaPagina,
+  };
+
+  factory PdfDocumentItem.fromMap(Map<String, dynamic> map) => PdfDocumentItem(
+    file: PlatformFile(
+      path: map['filePath'],
+      name: map['fileName'],
+      size: map['fileSize'] ?? 0,
+    ),
+    thumbnailPath: map['thumbnailPath'],
+    ultimaPagina: map['ultimaPagina'] ?? 1,
+  );
 }
 
 class PdfGroup {
@@ -41,7 +92,60 @@ class PdfGroup {
     required this.pdfs,
     required this.flashcards,
   });
+
+  Map<String, dynamic> toMap() => {
+    'nome': nome,
+    'pdfs': pdfs.map((e) => e.toMap()).toList(),
+    'flashcards': flashcards.map((e) => e.toMap()).toList(),
+  };
+
+  factory PdfGroup.fromMap(Map<String, dynamic> map) => PdfGroup(
+    nome: map['nome'],
+    pdfs: (map['pdfs'] as List? ?? []).map((e) => PdfDocumentItem.fromMap(e)).toList(),
+    flashcards: (map['flashcards'] as List? ?? []).map((e) => Flashcard.fromMap(e)).toList(),
+  );
 }
+
+// ==========================================
+// GERENCIADOR DE PERSISTÊNCIA LOCAL
+// ==========================================
+
+class PersistenceManager {
+  static Future<File> _getStorageFile() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return File('${directory.path}/memolingua_storage.json');
+  }
+
+  // Grava a lista completa de grupos no arquivo local
+  static Future<void> salvarGrupos(List<PdfGroup> grupos) async {
+    try {
+      final file = await _getStorageFile();
+      final jsonString = jsonEncode(grupos.map((g) => g.toMap()).toList());
+      await file.writeAsString(jsonString);
+    } catch (e) {
+      debugPrint("Erro ao salvar dados locais: $e");
+    }
+  }
+
+  // Lê o arquivo local e converte de volta para a lista estruturada
+  static Future<List<PdfGroup>> carregarGrupos() async {
+    try {
+      final file = await _getStorageFile();
+      if (await file.exists()) {
+        final jsonString = await file.readAsString();
+        final List<dynamic> jsonList = jsonDecode(jsonString);
+        return jsonList.map((json) => PdfGroup.fromMap(json)).toList();
+      }
+    } catch (e) {
+      debugPrint("Erro ao carregar dados locais: $e");
+    }
+    return [];
+  }
+}
+
+// ==========================================
+// INTERFACES E TELAS DO APLICATIVO
+// ==========================================
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -51,7 +155,10 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Leitor PDF',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+      ),
       home: const HomePage(),
     );
   }
@@ -65,7 +172,27 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final List<PdfGroup> grupos = [];
+  List<PdfGroup> grupos = [];
+  bool _carregando = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarDadosIniciais();
+  }
+
+  Future<void> _carregarDadosIniciais() async {
+    final dadosCarregados = await PersistenceManager.carregarGrupos();
+    setState(() {
+      grupos = dadosCarregados;
+      _carregando = false;
+    });
+  }
+
+  Future<void> _persistirEAtualizar() async {
+    await PersistenceManager.salvarGrupos(grupos);
+    setState(() {});
+  }
 
   Future<void> criarGrupo() async {
     final controller = TextEditingController();
@@ -77,9 +204,7 @@ class _HomePageState extends State<HomePage> {
           title: const Text('Novo Grupo'),
           content: TextField(
             controller: controller,
-            decoration: const InputDecoration(
-              hintText: 'Nome do grupo',
-            ),
+            decoration: const InputDecoration(hintText: 'Nome do grupo'),
           ),
           actions: [
             TextButton(
@@ -89,16 +214,15 @@ class _HomePageState extends State<HomePage> {
             ElevatedButton(
               onPressed: () {
                 if (controller.text.trim().isNotEmpty) {
-                  setState(() {
-                    grupos.add(
-                      PdfGroup(
-                        nome: controller.text.trim(),
-                        pdfs: [],
-                        flashcards: [],
-                      ),
-                    );
-                  });
+                  grupos.add(
+                    PdfGroup(
+                      nome: controller.text.trim(),
+                      pdfs: [],
+                      flashcards: [],
+                    ),
+                  );
                   Navigator.pop(context);
+                  _persistirEAtualizar();
                 }
               },
               child: const Text('Criar'),
@@ -113,29 +237,34 @@ class _HomePageState extends State<HomePage> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GrupoPage(grupo: grupo),
+        builder: (_) => GrupoPage(
+          grupo: grupo,
+          onSave: _persistirEAtualizar, // Passa a função de salvamento como callback
+        ),
       ),
     );
-    setState(() {});
+    _persistirEAtualizar();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('memolingua')),
-      body: grupos.isEmpty
-          ? const Center(child: Text('Nenhum grupo criado'))
-          : ListView.builder(
-              itemCount: grupos.length,
-              itemBuilder: (context, index) {
-                final grupo = grupos[index];
-                return ListTile(
-                  title: Text(grupo.nome),
-                  subtitle: Text('${grupo.flashcards.length} palavras'),
-                  onTap: () => abrirGrupo(grupo),
-                );
-              },
-            ),
+      body: _carregando
+          ? const Center(child: CircularProgressIndicator())
+          : grupos.isEmpty
+              ? const Center(child: Text('Nenhum grupo criado'))
+              : ListView.builder(
+                  itemCount: grupos.length,
+                  itemBuilder: (context, index) {
+                    final grupo = grupos[index];
+                    return ListTile(
+                      title: Text(grupo.nome),
+                      subtitle: Text('${grupo.flashcards.length} palavras'),
+                      onTap: () => abrirGrupo(grupo),
+                    );
+                  },
+                ),
       floatingActionButton: FloatingActionButton(
         onPressed: criarGrupo,
         child: const Icon(Icons.create_new_folder),
@@ -146,7 +275,9 @@ class _HomePageState extends State<HomePage> {
 
 class GrupoPage extends StatefulWidget {
   final PdfGroup grupo;
-  const GrupoPage({super.key, required this.grupo});
+  final VoidCallback onSave; // Recebe o gatilho de persistência da HomePage
+  
+  const GrupoPage({super.key, required this.grupo, required this.onSave});
 
   @override
   State<GrupoPage> createState() => _GrupoPageState();
@@ -190,12 +321,14 @@ class _GrupoPageState extends State<GrupoPage> {
       setState(() {
         widget.grupo.pdfs.add(novoPdf);
       });
+      widget.onSave();
 
       final thumbPath = await gerarThumbnail(novoPdf.file.path!, 1);
       if (thumbPath != null) {
         setState(() {
           novoPdf.thumbnailPath = thumbPath;
         });
+        widget.onSave();
       }
     }
   }
@@ -206,17 +339,21 @@ class _GrupoPageState extends State<GrupoPage> {
       MaterialPageRoute(
         builder: (_) => PdfViewerPage(
           pdfItem: pdfItem,
-          grupo: widget.grupo, // Devolvido o grupo para o leitor
+          grupo: widget.grupo,
+          onSave: widget.onSave,
         ),
       ),
     );
 
     if (ultimaPaginaLida != null && ultimaPaginaLida != pdfItem.ultimaPagina) {
       pdfItem.ultimaPagina = ultimaPaginaLida;
+      widget.onSave();
+      
       final novoThumb = await gerarThumbnail(pdfItem.file.path!, ultimaPaginaLida);
       setState(() {
         pdfItem.thumbnailPath = novoThumb;
       });
+      widget.onSave();
     }
   }
 
@@ -227,12 +364,45 @@ class _GrupoPageState extends State<GrupoPage> {
         builder: (_) => FlashcardsPage(grupo: widget.grupo),
       ),
     ).then((_) {
+      widget.onSave();
       setState(() {});
     });
   }
 
+  void iniciarRevisao(List<Flashcard> cardsParaRevisar) async {
+    final concluido = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReviewPage(cards: cardsParaRevisar),
+      ),
+    );
+
+    if (concluido == true) {
+      widget.onSave(); // Garante o salvamento após alterar os parâmetros SM-2
+      setState(() {}); 
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Revisão concluída 🎉'),
+          content: const Text('Você revisou todos os cartões agendados por enquanto!'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Excelente'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final agora = DateTime.now();
+    final cardsPendentes = widget.grupo.flashcards.where((card) {
+      return card.nextReview.isBefore(agora);
+    }).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.grupo.nome),
@@ -262,9 +432,7 @@ class _GrupoPageState extends State<GrupoPage> {
                   child: Card(
                     clipBehavior: Clip.antiAlias,
                     elevation: 3,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -289,10 +457,7 @@ class _GrupoPageState extends State<GrupoPage> {
                             pdfItem.file.name,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                           ),
                         ),
                       ],
@@ -301,6 +466,29 @@ class _GrupoPageState extends State<GrupoPage> {
                 );
               },
             ),
+      bottomNavigationBar: cardsPendentes.isNotEmpty
+          ? SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12.0, 0, 12.0, 12.0), // Ajustado o padding superior para 0
+                child: ElevatedButton.icon(
+                  onPressed: () => iniciarRevisao(cardsPendentes),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.bolt),
+                  label: Text(
+                    'Revisar Vocabulário (${cardsPendentes.length})',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            )
+          : null,
       floatingActionButton: FloatingActionButton(
         onPressed: adicionarPdfAoGrupo,
         child: const Icon(Icons.add),
@@ -323,11 +511,29 @@ class FlashcardsPage extends StatelessWidget {
               itemCount: grupo.flashcards.length,
               itemBuilder: (context, index) {
                 final flashcard = grupo.flashcards[index];
+                final agora = DateTime.now();
+                final bool pendente = flashcard.nextReview.isBefore(agora);
+
                 return Card(
                   margin: const EdgeInsets.all(8),
                   child: ListTile(
                     title: Text(flashcard.frente),
                     subtitle: Text(flashcard.verso),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: pendente ? Colors.red[100] : Colors.green[100],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        pendente ? 'Pendente' : 'Revisado',
+                        style: TextStyle(
+                          color: pendente ? Colors.red[800] : Colors.green[800],
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ),
                 );
               },
@@ -338,12 +544,14 @@ class FlashcardsPage extends StatelessWidget {
 
 class PdfViewerPage extends StatefulWidget {
   final PdfDocumentItem pdfItem;
-  final PdfGroup grupo; // Adicionado de volta aqui
+  final PdfGroup grupo;
+  final VoidCallback onSave;
 
   const PdfViewerPage({
     super.key, 
     required this.pdfItem,
-    required this.grupo, // Adicionado de volta aqui
+    required this.grupo,
+    required this.onSave,
   });
 
   @override
@@ -354,13 +562,6 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
   OverlayEntry? overlayEntry;
   late PdfViewerController _pdfViewerController;
   int _paginaAtual = 1;
-
-  @override
-  void initState() {
-    super.initState();
-    _pdfViewerController = PdfViewerController();
-    _paginaAtual = widget.pdfItem.ultimaPagina;
-  }
 
   void mostrarOverlay(BuildContext context, String textoSelecionado) {
     removerOverlay();
@@ -388,13 +589,13 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
                 const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: () {
-                    // Restaurada a lógica original de adição de palavras
                     widget.grupo.flashcards.add(
                       Flashcard(
                         frente: textoSelecionado,
-                        verso: "verso",
+                        verso: "Definição",
                       ),
                     );
+                    widget.onSave(); // Salva imediatamente no JSON ao adicionar palavra
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text("Palavra adicionada")),
@@ -416,6 +617,13 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
   void removerOverlay() {
     overlayEntry?.remove();
     overlayEntry = null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _pdfViewerController = PdfViewerController();
+    _paginaAtual = widget.pdfItem.ultimaPagina;
   }
 
   @override
@@ -459,6 +667,224 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
               removerOverlay();
             }
           },
+        ),
+      ),
+    );
+  }
+}
+
+class ReviewPage extends StatefulWidget {
+  final List<Flashcard> cards;
+  const ReviewPage({super.key, required this.cards});
+
+  @override
+  State<ReviewPage> createState() => _ReviewPageState();
+}
+
+class _ReviewPageState extends State<ReviewPage> {
+  int _currentIndex = 0;
+  bool _mostrarVerso = false;
+
+  void _processarResposta(int quality) {
+    final card = widget.cards[_currentIndex];
+
+    // Mantida sua exata lógica original do SM-2 Puro do primeiro prompt
+    if (quality < 3) {
+      card.repetitions = 0;
+      card.interval = 1;
+    } else {
+      if (card.repetitions == 0) {
+        card.interval = 1;
+      } else if (card.repetitions == 1) {
+        card.interval = 6;
+      } else {
+        card.interval = (card.interval * card.easeFactor).round();
+      }
+      card.repetitions += 1;
+    }
+
+    card.easeFactor = card.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+    if (card.easeFactor < 1.3) {
+      card.easeFactor = 1.3;
+    }
+
+    card.nextReview = DateTime.now().add(Duration(days: card.interval));
+
+    if (_currentIndex < widget.cards.length - 1) {
+      setState(() {
+        _currentIndex++;
+        _mostrarVerso = false;
+      });
+    } else {
+      Navigator.pop(context, true);
+    }
+  }
+
+  String _previewIntervalo(int quality) {
+    final card = widget.cards[_currentIndex];
+    int proximoIntervalo;
+
+    if (quality < 3) {
+      proximoIntervalo = 1;
+    } else {
+      if (card.repetitions == 0) {
+        proximoIntervalo = 1;
+      } else if (card.repetitions == 1) {
+        proximoIntervalo = 6;
+      } else {
+        proximoIntervalo = (card.interval * card.easeFactor).round();
+      }
+    }
+
+    return proximoIntervalo == 1 ? '1 dia' : '$proximoIntervalo dias';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cardAtual = widget.cards[_currentIndex];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Revisando (${_currentIndex + 1}/${widget.cards.length})'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+      ),
+      // O SafeArea aqui impede que os botões fiquem embaixo da navegação do Android
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text(
+                          'FRENTE',
+                          style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          cardAtual.frente,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w500),
+                        ),
+                        if (_mostrarVerso) ...[
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Divider(),
+                          ),
+                          const Text(
+                            'VERSO',
+                            style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            cardAtual.verso,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 20, color: Colors.blueGrey),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (!_mostrarVerso)
+                ElevatedButton(
+                  onPressed: () => setState(() => _mostrarVerso = true),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Mostrar Significado', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                )
+              else
+                Column(
+                  children: [
+                    Row(
+                      children: [
+                        _botaoGrade(
+                          label: 'Tentar\nnovamente',
+                          color: Colors.red,
+                          intervaloText: _previewIntervalo(1),
+                          onPressed: () => _processarResposta(1),
+                        ),
+                        const SizedBox(width: 8),
+                        _botaoGrade(
+                          label: 'Difícil',
+                          color: Colors.orange,
+                          intervaloText: _previewIntervalo(3),
+                          onPressed: () => _processarResposta(3),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _botaoGrade(
+                          label: 'Fácil',
+                          color: Colors.green,
+                          intervaloText: _previewIntervalo(4),
+                          onPressed: () => _processarResposta(4),
+                        ),
+                        const SizedBox(width: 8),
+                        _botaoGrade(
+                          label: 'Muito fácil',
+                          color: Colors.teal,
+                          intervaloText: _previewIntervalo(5),
+                          onPressed: () => _processarResposta(5),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _botaoGrade({
+    required String label,
+    required Color color,
+    required String intervaloText,
+    required VoidCallback onPressed,
+  }) {
+    return Expanded(
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: color, width: 1.5),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              intervaloText,
+              style: TextStyle(color: color.withOpacity(0.8), fontSize: 11),
+            ),
+          ],
         ),
       ),
     );
