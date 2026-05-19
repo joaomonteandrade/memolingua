@@ -8,13 +8,25 @@ void main() {
   runApp(const MyApp());
 }
 
+class Flashcard {
+  String frente;
+  String verso;
+
+  Flashcard({
+    required this.frente,
+    required this.verso,
+  });
+}
+
 class PdfGroup {
   String nome;
   List<PlatformFile> pdfs;
+  List<Flashcard> flashcards;
 
   PdfGroup({
     required this.nome,
     required this.pdfs,
+    required this.flashcards,
   });
 }
 
@@ -69,6 +81,7 @@ class _HomePageState extends State<HomePage> {
                       PdfGroup(
                         nome: controller.text.trim(),
                         pdfs: [],
+                        flashcards: [],
                       ),
                     );
                   });
@@ -84,13 +97,15 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void abrirGrupo(PdfGroup grupo) {
-    Navigator.push(
+  void abrirGrupo(PdfGroup grupo) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => GrupoPage(grupo: grupo),
       ),
     );
+
+    setState(() {});
   }
 
   @override
@@ -110,6 +125,9 @@ class _HomePageState extends State<HomePage> {
 
                 return ListTile(
                   title: Text(grupo.nome),
+                  subtitle: Text(
+                    '${grupo.flashcards.length} flashcards',
+                  ),
                   onTap: () => abrirGrupo(grupo),
                 );
               },
@@ -148,13 +166,32 @@ class _GrupoPageState extends State<GrupoPage> {
     }
   }
 
-  void abrirPdf(BuildContext context, PlatformFile pdf) {
+  void abrirPdf(
+    BuildContext context,
+    PlatformFile pdf,
+  ) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PdfViewerPage(pdf: pdf),
+        builder: (_) => PdfViewerPage(
+          pdf: pdf,
+          grupo: widget.grupo,
+        ),
       ),
     );
+  }
+
+  void abrirFlashcards() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FlashcardsPage(
+          grupo: widget.grupo,
+        ),
+      ),
+    ).then((_) {
+      setState(() {});
+    });
   }
 
   @override
@@ -162,6 +199,12 @@ class _GrupoPageState extends State<GrupoPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.grupo.nome),
+        actions: [
+          IconButton(
+            onPressed: abrirFlashcards,
+            icon: const Icon(Icons.style),
+          ),
+        ],
       ),
       body: widget.grupo.pdfs.isEmpty
           ? const Center(
@@ -187,12 +230,50 @@ class _GrupoPageState extends State<GrupoPage> {
   }
 }
 
+class FlashcardsPage extends StatelessWidget {
+  final PdfGroup grupo;
+
+  const FlashcardsPage({
+    super.key,
+    required this.grupo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Flashcards'),
+      ),
+      body: grupo.flashcards.isEmpty
+          ? const Center(
+              child: Text('Nenhum flashcard criado'),
+            )
+          : ListView.builder(
+              itemCount: grupo.flashcards.length,
+              itemBuilder: (context, index) {
+                final flashcard = grupo.flashcards[index];
+
+                return Card(
+                  margin: const EdgeInsets.all(8),
+                  child: ListTile(
+                    title: Text(flashcard.frente),
+                    subtitle: Text(flashcard.verso),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
 class PdfViewerPage extends StatefulWidget {
   final PlatformFile pdf;
+  final PdfGroup grupo;
 
   const PdfViewerPage({
     super.key,
     required this.pdf,
+    required this.grupo,
   });
 
   @override
@@ -236,13 +317,26 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
 
                 ElevatedButton(
                   onPressed: () {
-                    print(
-                      "Texto selecionado: $textoSelecionado",
+                    widget.grupo.flashcards.add(
+                      Flashcard(
+                        frente: textoSelecionado,
+                        verso: "verso",
+                      ),
+                    );
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          "Flashcard criado",
+                        ),
+                      ),
                     );
 
                     removerOverlay();
                   },
-                  child: const Text("Meu Botão"),
+                  child: const Text(
+                    "Criar Flashcard",
+                  ),
                 ),
               ],
             ),
