@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart' as pdfx;
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const MyApp());
@@ -17,10 +18,10 @@ void main() {
 class Flashcard {
   String frente;
   String verso;
-  int repetitions;   
-  int interval;      
-  double easeFactor; 
-  DateTime nextReview; 
+  int repetitions;
+  int interval;
+  double easeFactor;
+  DateTime nextReview;
 
   Flashcard({
     required this.frente,
@@ -48,7 +49,9 @@ class Flashcard {
     repetitions: map['repetitions'] ?? 0,
     interval: map['interval'] ?? 0,
     easeFactor: (map['easeFactor'] as num?)?.toDouble() ?? 2.5,
-    nextReview: map['nextReview'] != null ? DateTime.parse(map['nextReview']) : DateTime.now(),
+    nextReview: map['nextReview'] != null
+        ? DateTime.parse(map['nextReview'])
+        : DateTime.now(),
   );
 }
 
@@ -84,25 +87,33 @@ class PdfDocumentItem {
 
 class PdfGroup {
   String nome;
+  String lingua;
   List<PdfDocumentItem> pdfs;
   List<Flashcard> flashcards;
 
   PdfGroup({
     required this.nome,
+    required this.lingua,
     required this.pdfs,
     required this.flashcards,
   });
 
   Map<String, dynamic> toMap() => {
     'nome': nome,
+    'lingua': lingua,
     'pdfs': pdfs.map((e) => e.toMap()).toList(),
     'flashcards': flashcards.map((e) => e.toMap()).toList(),
   };
 
   factory PdfGroup.fromMap(Map<String, dynamic> map) => PdfGroup(
     nome: map['nome'],
-    pdfs: (map['pdfs'] as List? ?? []).map((e) => PdfDocumentItem.fromMap(e)).toList(),
-    flashcards: (map['flashcards'] as List? ?? []).map((e) => Flashcard.fromMap(e)).toList(),
+    lingua: map['lingua'] ?? 'en',
+    pdfs: (map['pdfs'] as List? ?? [])
+        .map((e) => PdfDocumentItem.fromMap(e))
+        .toList(),
+    flashcards: (map['flashcards'] as List? ?? [])
+        .map((e) => Flashcard.fromMap(e))
+        .toList(),
   );
 }
 
@@ -155,10 +166,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Leitor PDF',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
       home: const HomePage(),
     );
   }
@@ -196,31 +204,61 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> criarGrupo() async {
     final controller = TextEditingController();
+    String linguaSelecionada = 'en';
 
     await showDialog(
       context: context,
       builder: (_) {
         return AlertDialog(
           title: const Text('Novo Grupo'),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(hintText: 'Nome do grupo'),
+
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(hintText: 'Nome do grupo'),
+              ),
+
+              const SizedBox(height: 16),
+
+              DropdownButtonFormField<String>(
+                value: linguaSelecionada,
+                items: const [
+                  DropdownMenuItem(value: 'en', child: Text('Inglês')),
+                  DropdownMenuItem(value: 'es', child: Text('Espanhol')),
+                  DropdownMenuItem(value: 'fr', child: Text('Francês')),
+                  DropdownMenuItem(value: 'de', child: Text('Alemão')),
+                  DropdownMenuItem(value: 'pt', child: Text('Português')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    linguaSelecionada = value;
+                  }
+                },
+                decoration: const InputDecoration(labelText: 'Idioma do grupo'),
+              ),
+            ],
           ),
+
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancelar'),
             ),
+
             ElevatedButton(
               onPressed: () {
                 if (controller.text.trim().isNotEmpty) {
                   grupos.add(
                     PdfGroup(
                       nome: controller.text.trim(),
+                      lingua: linguaSelecionada,
                       pdfs: [],
                       flashcards: [],
                     ),
                   );
+
                   Navigator.pop(context);
                   _persistirEAtualizar();
                 }
@@ -239,7 +277,8 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute(
         builder: (_) => GrupoPage(
           grupo: grupo,
-          onSave: _persistirEAtualizar, // Passa a função de salvamento como callback
+          onSave:
+              _persistirEAtualizar, // Passa a função de salvamento como callback
         ),
       ),
     );
@@ -253,18 +292,18 @@ class _HomePageState extends State<HomePage> {
       body: _carregando
           ? const Center(child: CircularProgressIndicator())
           : grupos.isEmpty
-              ? const Center(child: Text('Nenhum grupo criado'))
-              : ListView.builder(
-                  itemCount: grupos.length,
-                  itemBuilder: (context, index) {
-                    final grupo = grupos[index];
-                    return ListTile(
-                      title: Text(grupo.nome),
-                      subtitle: Text('${grupo.flashcards.length} palavras'),
-                      onTap: () => abrirGrupo(grupo),
-                    );
-                  },
-                ),
+          ? const Center(child: Text('Nenhum grupo criado'))
+          : ListView.builder(
+              itemCount: grupos.length,
+              itemBuilder: (context, index) {
+                final grupo = grupos[index];
+                return ListTile(
+                  title: Text(grupo.nome),
+                  subtitle: Text('${grupo.flashcards.length} palavras'),
+                  onTap: () => abrirGrupo(grupo),
+                );
+              },
+            ),
       floatingActionButton: FloatingActionButton(
         onPressed: criarGrupo,
         child: const Icon(Icons.create_new_folder),
@@ -276,7 +315,7 @@ class _HomePageState extends State<HomePage> {
 class GrupoPage extends StatefulWidget {
   final PdfGroup grupo;
   final VoidCallback onSave; // Recebe o gatilho de persistência da HomePage
-  
+
   const GrupoPage({super.key, required this.grupo, required this.onSave});
 
   @override
@@ -317,7 +356,7 @@ class _GrupoPageState extends State<GrupoPage> {
 
     if (result != null && result.files.first.path != null) {
       final novoPdf = PdfDocumentItem(file: result.files.first);
-      
+
       setState(() {
         widget.grupo.pdfs.add(novoPdf);
       });
@@ -345,14 +384,23 @@ class _GrupoPageState extends State<GrupoPage> {
       ),
     );
 
-    if (ultimaPaginaLida != null && ultimaPaginaLida != pdfItem.ultimaPagina) {
-      pdfItem.ultimaPagina = ultimaPaginaLida;
-      widget.onSave();
-      
-      final novoThumb = await gerarThumbnail(pdfItem.file.path!, ultimaPaginaLida);
-      setState(() {
-        pdfItem.thumbnailPath = novoThumb;
-      });
+    if (ultimaPaginaLida != null) {
+      if (ultimaPaginaLida != pdfItem.ultimaPagina) {
+        pdfItem.ultimaPagina = ultimaPaginaLida;
+
+        final novoThumb = await gerarThumbnail(
+          pdfItem.file.path!,
+          ultimaPaginaLida,
+        );
+
+        setState(() {
+          pdfItem.thumbnailPath = novoThumb;
+        });
+      }
+
+      // força atualização da tela do grupo
+      setState(() {});
+
       widget.onSave();
     }
   }
@@ -360,9 +408,7 @@ class _GrupoPageState extends State<GrupoPage> {
   void abrirFlashcards() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => FlashcardsPage(grupo: widget.grupo),
-      ),
+      MaterialPageRoute(builder: (_) => FlashcardsPage(grupo: widget.grupo)),
     ).then((_) {
       widget.onSave();
       setState(() {});
@@ -372,19 +418,19 @@ class _GrupoPageState extends State<GrupoPage> {
   void iniciarRevisao(List<Flashcard> cardsParaRevisar) async {
     final concluido = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(
-        builder: (_) => ReviewPage(cards: cardsParaRevisar),
-      ),
+      MaterialPageRoute(builder: (_) => ReviewPage(cards: cardsParaRevisar)),
     );
 
     if (concluido == true) {
       widget.onSave(); // Garante o salvamento após alterar os parâmetros SM-2
-      setState(() {}); 
+      setState(() {});
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Revisão concluída 🎉'),
-          content: const Text('Você revisou todos os cartões agendados por enquanto!'),
+          content: const Text(
+            'Você revisou todos os cartões agendados por enquanto!',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -407,10 +453,7 @@ class _GrupoPageState extends State<GrupoPage> {
       appBar: AppBar(
         title: Text(widget.grupo.nome),
         actions: [
-          IconButton(
-            onPressed: abrirFlashcards,
-            icon: const Icon(Icons.style),
-          ),
+          IconButton(onPressed: abrirFlashcards, icon: const Icon(Icons.style)),
         ],
       ),
       body: widget.grupo.pdfs.isEmpty
@@ -432,7 +475,9 @@ class _GrupoPageState extends State<GrupoPage> {
                   child: Card(
                     clipBehavior: Clip.antiAlias,
                     elevation: 3,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -457,7 +502,10 @@ class _GrupoPageState extends State<GrupoPage> {
                             pdfItem.file.name,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                       ],
@@ -469,7 +517,12 @@ class _GrupoPageState extends State<GrupoPage> {
       bottomNavigationBar: cardsPendentes.isNotEmpty
           ? SafeArea(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12.0, 0, 12.0, 12.0), // Ajustado o padding superior para 0
+                padding: const EdgeInsets.fromLTRB(
+                  12.0,
+                  0,
+                  12.0,
+                  12.0,
+                ), // Ajustado o padding superior para 0
                 child: ElevatedButton.icon(
                   onPressed: () => iniciarRevisao(cardsPendentes),
                   style: ElevatedButton.styleFrom(
@@ -483,7 +536,10 @@ class _GrupoPageState extends State<GrupoPage> {
                   icon: const Icon(Icons.bolt),
                   label: Text(
                     'Revisar Vocabulário (${cardsPendentes.length})',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
@@ -520,7 +576,10 @@ class FlashcardsPage extends StatelessWidget {
                     title: Text(flashcard.frente),
                     subtitle: Text(flashcard.verso),
                     trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: pendente ? Colors.red[100] : Colors.green[100],
                         borderRadius: BorderRadius.circular(8),
@@ -548,7 +607,7 @@ class PdfViewerPage extends StatefulWidget {
   final VoidCallback onSave;
 
   const PdfViewerPage({
-    super.key, 
+    super.key,
     required this.pdfItem,
     required this.grupo,
     required this.onSave,
@@ -563,7 +622,38 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
   late PdfViewerController _pdfViewerController;
   int _paginaAtual = 1;
 
-  void mostrarOverlay(BuildContext context, String textoSelecionado) {
+  //função para traduzir o texto e tals né
+  Future<String> traduzirTexto(String textoOriginal) async {
+    final url = Uri.parse("http://10.0.2.2:5000/translate");
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: {
+          "q": textoOriginal,
+          "source": "auto",
+          "target": "pt",
+          "format": "text",
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['translatedText'] ?? 'Sem resposta da tradução';
+      } else {
+        return "Erro na tradução: ${response.body}";
+      }
+    } catch (e) {
+      return "Erro de conexão: $e";
+    }
+  }
+
+  Future<void> mostrarOverlay(
+    BuildContext context,
+    String textoSelecionado,
+  ) async {
+    final traducao = await traduzirTexto(textoSelecionado);
     removerOverlay();
 
     overlayEntry = OverlayEntry(
@@ -584,22 +674,39 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
               children: [
                 Text(
                   textoSelecionado,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                const SizedBox(height: 12),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  traducao,
+                  style: const TextStyle(
+                    color: Colors.greenAccent,
+                    fontSize: 16,
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
                 ElevatedButton(
                   onPressed: () {
                     widget.grupo.flashcards.add(
-                      Flashcard(
-                        frente: textoSelecionado,
-                        verso: "Definição",
-                      ),
+                      Flashcard(frente: textoSelecionado, verso: traducao),
                     );
-                    widget.onSave(); // Salva imediatamente no JSON ao adicionar palavra
+
+                    widget.onSave();
+
+                    _pdfViewerController.clearSelection();
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text("Palavra adicionada")),
                     );
+
                     removerOverlay();
                   },
                   child: const Text("Adicionar ao Vocabulário"),
@@ -661,7 +768,8 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
             _paginaAtual = details.newPageNumber;
           },
           onTextSelectionChanged: (details) {
-            if (details.selectedText != null && details.selectedText!.isNotEmpty) {
+            if (details.selectedText != null &&
+                details.selectedText!.isNotEmpty) {
               mostrarOverlay(context, details.selectedText!);
             } else {
               removerOverlay();
@@ -703,7 +811,8 @@ class _ReviewPageState extends State<ReviewPage> {
       card.repetitions += 1;
     }
 
-    card.easeFactor = card.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+    card.easeFactor =
+        card.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
     if (card.easeFactor < 1.3) {
       card.easeFactor = 1.3;
     }
@@ -761,7 +870,9 @@ class _ReviewPageState extends State<ReviewPage> {
               Expanded(
                 child: Card(
                   elevation: 4,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -769,13 +880,20 @@ class _ReviewPageState extends State<ReviewPage> {
                       children: [
                         const Text(
                           'FRENTE',
-                          style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12),
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           cardAtual.frente,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w500),
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         if (_mostrarVerso) ...[
                           const Padding(
@@ -784,13 +902,20 @@ class _ReviewPageState extends State<ReviewPage> {
                           ),
                           const Text(
                             'VERSO',
-                            style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12),
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             cardAtual.verso,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 20, color: Colors.blueGrey),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              color: Colors.blueGrey,
+                            ),
                           ),
                         ],
                       ],
@@ -806,9 +931,14 @@ class _ReviewPageState extends State<ReviewPage> {
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  child: const Text('Mostrar Significado', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  child: const Text(
+                    'Mostrar Significado',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 )
               else
                 Column(
@@ -816,7 +946,7 @@ class _ReviewPageState extends State<ReviewPage> {
                     Row(
                       children: [
                         _botaoGrade(
-                          label: 'Tentar\nnovamente',
+                          label: 'Tentar novamente',
                           color: Colors.red,
                           intervaloText: _previewIntervalo(1),
                           onPressed: () => _processarResposta(1),
@@ -869,7 +999,9 @@ class _ReviewPageState extends State<ReviewPage> {
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: color, width: 1.5),
           padding: const EdgeInsets.symmetric(vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -877,7 +1009,11 @@ class _ReviewPageState extends State<ReviewPage> {
             Text(
               label,
               textAlign: TextAlign.center,
-              style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
