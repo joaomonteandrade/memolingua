@@ -653,8 +653,10 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
     BuildContext context,
     String textoSelecionado,
   ) async {
-    final traducao = await traduzirTexto(textoSelecionado);
     removerOverlay();
+
+    // Estado reativo da tradução
+    final traducaoNotifier = ValueNotifier<String>('Traduzindo...');
 
     overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
@@ -683,20 +685,28 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
 
                 const SizedBox(height: 8),
 
-                Text(
-                  traducao,
-                  style: const TextStyle(
-                    color: Colors.greenAccent,
-                    fontSize: 16,
-                  ),
+                // Parte reativa
+                ValueListenableBuilder<String>(
+                  valueListenable: traducaoNotifier,
+                  builder: (context, traducao, child) {
+                    return Text(
+                      traducao,
+                      style: const TextStyle(
+                        color: Colors.greenAccent,
+                        fontSize: 16,
+                      ),
+                    );
+                  },
                 ),
 
                 const SizedBox(height: 16),
 
                 ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
+                    final traducaoAtual = traducaoNotifier.value;
+
                     widget.grupo.flashcards.add(
-                      Flashcard(frente: textoSelecionado, verso: traducao),
+                      Flashcard(frente: textoSelecionado, verso: traducaoAtual),
                     );
 
                     widget.onSave();
@@ -718,7 +728,14 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
       ),
     );
 
+    // Mostra IMEDIATAMENTE
     Overlay.of(context).insert(overlayEntry!);
+
+    // Tradução acontece em paralelo
+    final traducao = await traduzirTexto(textoSelecionado);
+
+    // Atualiza o overlay quando chegar
+    traducaoNotifier.value = traducao;
   }
 
   void removerOverlay() {
@@ -759,6 +776,9 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
         body: SfPdfViewer.file(
           File(widget.pdfItem.file.path!),
           controller: _pdfViewerController,
+
+          canShowTextSelectionMenu: false,
+          enableTextSelection: true,
           onDocumentLoaded: (PdfDocumentLoadedDetails details) {
             if (widget.pdfItem.ultimaPagina > 1) {
               _pdfViewerController.jumpToPage(widget.pdfItem.ultimaPagina);
