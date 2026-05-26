@@ -166,7 +166,52 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Leitor PDF',
-      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      theme: ThemeData(
+        useMaterial3: true,
+        primaryColor: Colors.blue,
+        scaffoldBackgroundColor: const Color(0xFFF5F7FB),
+
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.blue,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: true,
+        ),
+
+        cardTheme: CardThemeData(
+          color: Colors.white,
+          elevation: 3,
+          shadowColor: Colors.black12,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+        ),
+
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+        ),
+      ),
       home: const HomePage(),
     );
   }
@@ -208,22 +253,29 @@ class _HomePageState extends State<HomePage> {
 
     await showDialog(
       context: context,
-      builder: (_) {
+      builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Novo Grupo'),
-
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('Novo grupo'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: controller,
-                decoration: const InputDecoration(hintText: 'Nome do grupo'),
+                decoration: const InputDecoration(
+                  labelText: 'Nome do grupo',
+                  border: OutlineInputBorder(),
+                ),
               ),
-
               const SizedBox(height: 16),
-
               DropdownButtonFormField<String>(
                 value: linguaSelecionada,
+                decoration: const InputDecoration(
+                  labelText: 'Idioma do grupo',
+                  border: OutlineInputBorder(),
+                ),
                 items: const [
                   DropdownMenuItem(value: 'en', child: Text('Inglês')),
                   DropdownMenuItem(value: 'es', child: Text('Espanhol')),
@@ -236,17 +288,14 @@ class _HomePageState extends State<HomePage> {
                     linguaSelecionada = value;
                   }
                 },
-                decoration: const InputDecoration(labelText: 'Idioma do grupo'),
               ),
             ],
           ),
-
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancelar'),
             ),
-
             ElevatedButton(
               onPressed: () {
                 if (controller.text.trim().isNotEmpty) {
@@ -258,8 +307,7 @@ class _HomePageState extends State<HomePage> {
                       flashcards: [],
                     ),
                   );
-
-                  Navigator.pop(context);
+                  Navigator.pop(dialogContext);
                   _persistirEAtualizar();
                 }
               },
@@ -275,38 +323,305 @@ class _HomePageState extends State<HomePage> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GrupoPage(
-          grupo: grupo,
-          onSave:
-              _persistirEAtualizar, // Passa a função de salvamento como callback
-        ),
+        builder: (_) => GrupoPage(grupo: grupo, onSave: _persistirEAtualizar),
       ),
     );
     _persistirEAtualizar();
   }
 
+  String _nomeIdioma(String lingua) {
+    switch (lingua) {
+      case 'en':
+        return 'Inglês';
+      case 'es':
+        return 'Espanhol';
+      case 'fr':
+        return 'Francês';
+      case 'de':
+        return 'Alemão';
+      case 'pt':
+        return 'Português';
+      default:
+        return lingua.toUpperCase();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final totalGrupos = grupos.length;
+    final totalFlashcards = grupos.fold<int>(
+      0,
+      (soma, grupo) => soma + grupo.flashcards.length,
+    );
+    final totalPdfs = grupos.fold<int>(
+      0,
+      (soma, grupo) => soma + grupo.pdfs.length,
+    );
+
     return Scaffold(
-      appBar: AppBar(title: const Text('memolingua')),
+      backgroundColor: const Color(0xFFF5F7FB),
+      appBar: AppBar(
+        title: const Text('memolingua'),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+        onPressed: criarGrupo,
+        icon: const Icon(Icons.create_new_folder),
+        label: const Text('Novo grupo'),
+      ),
       body: _carregando
           ? const Center(child: CircularProgressIndicator())
-          : grupos.isEmpty
-          ? const Center(child: Text('Nenhum grupo criado'))
-          : ListView.builder(
-              itemCount: grupos.length,
-              itemBuilder: (context, index) {
-                final grupo = grupos[index];
-                return ListTile(
-                  title: Text(grupo.nome),
-                  subtitle: Text('${grupo.flashcards.length} palavras'),
-                  onTap: () => abrirGrupo(grupo),
-                );
-              },
+          : RefreshIndicator(
+              onRefresh: _carregarDadosIniciais,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Colors.blue, Colors.lightBlueAccent],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.blue.withOpacity(0.18),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(
+                            Icons.menu_book_rounded,
+                            color: Colors.white,
+                            size: 30,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Seu progresso',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '$totalGrupos grupos • $totalFlashcards palavras • $totalPdfs PDFs',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.92),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Seus grupos',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (grupos.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 72,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.10),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.folder_open_rounded,
+                              size: 38,
+                              color: Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Nenhum grupo criado ainda',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Crie um grupo para organizar seus PDFs e flashcards.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                          const SizedBox(height: 18),
+                          ElevatedButton.icon(
+                            onPressed: criarGrupo,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Criar primeiro grupo'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ...grupos.map((grupo) {
+                      final revisoesPendentes = grupo.flashcards.where((card) {
+                        return card.nextReview.isBefore(DateTime.now());
+                      }).length;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(18),
+                          onTap: () => abrirGrupo(grupo),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(18),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.06),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 52,
+                                  height: 52,
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withOpacity(0.10),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const Icon(
+                                    Icons.folder_rounded,
+                                    color: Colors.blue,
+                                    size: 30,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        grupo.nome,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          _InfoChip(
+                                            icon: Icons.language,
+                                            text: _nomeIdioma(grupo.lingua),
+                                          ),
+                                          _InfoChip(
+                                            icon: Icons.style,
+                                            text:
+                                                '${grupo.flashcards.length} palavras',
+                                          ),
+                                          _InfoChip(
+                                            icon: Icons.schedule,
+                                            text:
+                                                '$revisoesPendentes revisões pendentes',
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Colors.black45,
+                                  size: 30,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  const SizedBox(height: 90),
+                ],
+              ),
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: criarGrupo,
-        child: const Icon(Icons.create_new_folder),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _InfoChip({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.blueGrey),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.black87,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -427,7 +742,7 @@ class _GrupoPageState extends State<GrupoPage> {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('Revisão concluída 🎉'),
+          title: const Text('Revisão concluída'),
           content: const Text(
             'Você revisou todos os cartões agendados por enquanto!',
           ),
@@ -450,6 +765,7 @@ class _GrupoPageState extends State<GrupoPage> {
     }).toList();
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(
         title: Text(widget.grupo.nome),
         actions: [
@@ -472,39 +788,50 @@ class _GrupoPageState extends State<GrupoPage> {
 
                 return GestureDetector(
                   onTap: () => abrirPdf(context, pdfItem),
-                  child: Card(
-                    clipBehavior: Clip.antiAlias,
-                    elevation: 3,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Expanded(
-                          child: pdfItem.thumbnailPath != null
-                              ? Image.file(
-                                  File(pdfItem.thumbnailPath!),
-                                  fit: BoxFit.cover,
-                                )
-                              : Container(
-                                  color: Colors.grey[200],
-                                  child: const Icon(
-                                    Icons.picture_as_pdf,
-                                    size: 50,
-                                    color: Colors.redAccent,
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(20),
+                            ),
+                            child: pdfItem.thumbnailPath != null
+                                ? Image.file(
+                                    File(pdfItem.thumbnailPath!),
+                                    fit: BoxFit.cover,
+                                  )
+                                : Container(
+                                    color: Colors.blue.withOpacity(0.08),
+                                    child: const Icon(
+                                      Icons.picture_as_pdf,
+                                      size: 60,
+                                      color: Colors.redAccent,
+                                    ),
                                   ),
-                                ),
+                          ),
                         ),
                         Padding(
-                          padding: const EdgeInsets.all(8.0),
+                          padding: const EdgeInsets.all(12),
                           child: Text(
                             pdfItem.file.name,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
                             ),
                           ),
                         ),
@@ -546,6 +873,8 @@ class _GrupoPageState extends State<GrupoPage> {
             )
           : null,
       floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
         onPressed: adicionarPdfAoGrupo,
         child: const Icon(Icons.add),
       ),
@@ -553,46 +882,223 @@ class _GrupoPageState extends State<GrupoPage> {
   }
 }
 
-class FlashcardsPage extends StatelessWidget {
+class FlashcardsPage extends StatefulWidget {
   final PdfGroup grupo;
+
   const FlashcardsPage({super.key, required this.grupo});
+
+  @override
+  State<FlashcardsPage> createState() => _FlashcardsPageState();
+}
+
+class _FlashcardsPageState extends State<FlashcardsPage> {
+  Future<void> editarFlashcard(Flashcard flashcard) async {
+    final frenteController = TextEditingController(text: flashcard.frente);
+
+    final versoController = TextEditingController(text: flashcard.verso);
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
+
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+
+              children: [
+                const Text(
+                  'Editar palavra',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+
+                const SizedBox(height: 24),
+
+                TextField(
+                  controller: frenteController,
+                  decoration: const InputDecoration(labelText: 'Frente'),
+                ),
+
+                const SizedBox(height: 18),
+
+                TextField(
+                  controller: versoController,
+                  decoration: const InputDecoration(labelText: 'Verso'),
+                ),
+
+                const SizedBox(height: 28),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(dialogContext);
+                      },
+                      child: const Text('Cancelar'),
+                    ),
+
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            widget.grupo.flashcards.remove(flashcard);
+
+                            Navigator.pop(dialogContext);
+
+                            setState(() {});
+                          },
+
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.red,
+                          ),
+
+                          child: const Text('Remover'),
+                        ),
+
+                        const SizedBox(width: 8),
+
+                        ElevatedButton(
+                          onPressed: () {
+                            flashcard.frente = frenteController.text.trim();
+
+                            flashcard.verso = versoController.text.trim();
+
+                            Navigator.pop(dialogContext);
+
+                            setState(() {});
+                          },
+
+                          child: const Text('Salvar'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Vocabulário')),
-      body: grupo.flashcards.isEmpty
+
+      body: widget.grupo.flashcards.isEmpty
           ? const Center(child: Text('Nenhuma palavra adicionada'))
           : ListView.builder(
-              itemCount: grupo.flashcards.length,
+              itemCount: widget.grupo.flashcards.length,
+
               itemBuilder: (context, index) {
-                final flashcard = grupo.flashcards[index];
+                final flashcard = widget.grupo.flashcards[index];
+
                 final agora = DateTime.now();
+
                 final bool pendente = flashcard.nextReview.isBefore(agora);
 
-                return Card(
-                  margin: const EdgeInsets.all(8),
-                  child: ListTile(
-                    title: Text(flashcard.frente),
-                    subtitle: Text(flashcard.verso),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                return Container(
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+
+                  padding: const EdgeInsets.all(16),
+
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 6),
                       ),
-                      decoration: BoxDecoration(
-                        color: pendente ? Colors.red[100] : Colors.green[100],
-                        borderRadius: BorderRadius.circular(8),
+                    ],
+                  ),
+
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  flashcard.frente,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+
+                                const SizedBox(height: 4),
+
+                                Text(
+                                  flashcard.verso,
+                                  style: const TextStyle(color: Colors.black54),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(width: 8),
+
+                          IconButton(
+                            onPressed: () => editarFlashcard(flashcard),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                        ],
                       ),
-                      child: Text(
-                        pendente ? 'Pendente' : 'Revisado',
-                        style: TextStyle(
-                          color: pendente ? Colors.red[800] : Colors.green[800],
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
+
+                      const SizedBox(height: 14),
+
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+
+                        decoration: BoxDecoration(
+                          color: pendente
+                              ? Colors.red.withOpacity(0.1)
+                              : Colors.green.withOpacity(0.1),
+
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+
+                        child: Text(
+                          pendente ? 'Pendente' : 'Revisado',
+
+                          style: TextStyle(
+                            color: pendente
+                                ? Colors.red[700]
+                                : Colors.green[700],
+
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 );
               },
